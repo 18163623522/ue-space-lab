@@ -608,6 +608,26 @@ input[type="range"] { accent-color: var(--accent-blue); }
 .api-line .fn { color: var(--accent-blue); font-weight: 700; }
 .api-line .arg { color: var(--accent-orange); }
 
+/* 站卡空间档案 / 相机本体并排 */
+.stsem { font-size: 10.5px; color: var(--accent-purple); margin-top: 4px; line-height: 1.6; }
+.stcam {
+  font-size: 11px; color: var(--text-secondary);
+  background: var(--bg-tertiary); border-radius: 6px; padding: 4px 8px; margin-top: 5px;
+  font-family: Consolas, monospace; line-height: 1.7;
+}
+/* ⑧ 空间全景表 */
+.spacet { width: 100%; border-collapse: collapse; font-size: 11px; }
+.spacet th {
+  text-align: left; color: var(--text-tertiary); font-weight: 600;
+  padding: 3px 6px; border-bottom: 1px solid var(--border-primary); font-size: 10.5px;
+}
+.spacet td { padding: 4px 6px; border-bottom: 1px solid var(--border-secondary); color: var(--text-primary); }
+.spacet td b { font-size: 11.5px; }
+.spacet td.sem { color: var(--text-tertiary); font-size: 10.5px; }
+.spacet td.pv { font-family: Consolas, monospace; font-size: 10.5px; color: var(--accent-red); white-space: nowrap; }
+.spacet td[id^="spw-"] { font-family: Consolas, monospace; font-size: 10.5px; color: var(--accent-green); white-space: nowrap; }
+.kv.dim, .kv .dim { color: var(--text-tertiary); }
+
 .toast {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
   background: var(--bg-card); border: 1px solid var(--accent-blue); color: var(--text-primary);
@@ -739,7 +759,11 @@ input[type="range"] { accent-color: var(--accent-blue); }
     <div class="pgroup">
       <h3>⑤ 屏幕落点 <span class="hint">游戏相机实际看到的画面</span></h3>
       <canvas id="screen-canvas" width="384" height="216"></canvas>
-      <div class="kv" id="screen-kv" style="margin-top:8px"></div>
+      <div class="btnrow" style="margin-top:6px">
+        <label class="inline-cb" style="font-size:11.5px;color:var(--text-secondary)"><input type="checkbox" id="chk-prev" checked> 上一帧对照（运动矢量）</label>
+        <span class="hint" style="margin-left:auto">拖滑块/转相机看 → 箭头</span>
+      </div>
+      <div class="kv" id="screen-kv" style="margin-top:6px"></div>
     </div>
 
     <div class="pgroup" id="nrm-group" style="display:none">
@@ -753,10 +777,31 @@ input[type="range"] { accent-color: var(--accent-blue); }
     </div>
 
     <div class="pgroup">
+      <h3>⑧ 空间全景读数 <span class="hint">P 与 v 在每个空间的实时读数 · 语义一目了然</span></h3>
+      <table class="spacet" id="spacet">
+        <tr><th style="width:86px">空间</th><th>语义（轴 / w / 单位）</th><th style="width:150px">P 读数</th><th style="width:120px">v 读数</th></tr>
+      </table>
+      <div class="kv dim" style="margin-top:6px">切线空间需要网格表面定义（本实验台无表面，见课程 4.7）；实例/骨骼/Niagara 空间需挂对应组件——原理同"父空间"的帧接力。</div>
+    </div>
+
+    <div class="pgroup">
+      <h3>⑨ 空间速查 <span class="hint">8 谱系 · 24+ 空间（课程词典浓缩版）</span></h3>
+      <div class="kv">
+        <b>层级</b>：本地 → 父/相对 → 组件 → Actor → 世界（位置✔向量✔）<br>
+        <b>渲染</b>：相机本体(X前Y右Z上) → 视图(X右Y上Z前) → 裁剪=<b>屏幕齐次</b>(W=深度) → NDC(x,y∈[−1,1] z∈[0,1]) → 像素/视口UV(左上原点Y向下)（位置主线；向量止步视图）<br>
+        <b>UV 族</b>：贴图UV · SubUV · ViewportUV · BufferUV(SceneTexture≠Viewport！) · 像素位置<br>
+        <b>表面</b>：切线空间 TBN（向量专属，法线走 (M⁻¹)ᵀ）｜ <b>骨骼</b>：父骨骼 → 组件 → 世界（RTS_ParentBoneSpace）<br>
+        <b>实例粒子</b>：实例(ISM) · 网格粒子帧 · Niagara(Simulation/World/Local + bLocalSpace)<br>
+        <b>大世界</b>：相机相对世界 · 周期世界 · 第一人称 ｜ <b>阴影与上一帧</b>：光空间深度 · PreviousLocalToWorld/PrevScreenPosition（运动矢量）
+      </div>
+    </div>
+
+    <div class="pgroup">
       <h3>说明</h3>
       <div class="kv">
         · 本页所有数值由 UE 约定管线现场计算：行向量 p·M｜FTransform：S→R→T（行向量记法）｜View=T(−eye)·R⁻¹·Swap｜经典透视（w=z_view，z∈[0,1]）｜像素=(x/2+0.5, 1−y/2−0.5)×分辨率<br>
-        · 位置链条止于像素；向量链条止于视图（裁剪站的 w 对向量无意义）；法线在向量规则上再乘 (M⁻¹)ᵀ 归一化<br>
+        · 每张管线卡下方是"空间档案"：轴朝向 / w 语义 / 位置与向量的通行状态；视图站并排给出相机本体读数（差一次 Swap）<br>
+        · 上一帧对照：每 0.9s 快照一次，屏幕上的空心点是上帧落点、箭头是屏幕运动矢量（TAA/运动模糊的输入）<br>
         · 快捷键：<b>1/2/3</b> 切模式 · <b>←→</b> 步进 · <b>R</b> 复位
       </div>
     </div>
@@ -1277,12 +1322,18 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
   var S = JSON.parse(JSON.stringify(DEFAULTS));
   S.mode = 'pos'; S.station = 0; S.res = [1280, 720];
   var STATIONS = [
-    { name: '本地（子）', op: 'P 输入', mat: null },
-    { name: '父空间',    op: '· ChildToParent', mat: 'c2p' },
-    { name: '世界',      op: '· ParentToWorld', mat: 'p2w' },
-    { name: '视图',      op: '· ViewMatrix', mat: 'view' },
-    { name: '裁剪',      op: '· 透视矩阵', mat: 'proj' },
-    { name: 'NDC·像素',  op: '÷w → ×分辨率', mat: null }
+    { name: '本地（子）', op: 'P 输入', mat: null,
+      sem: '轴 = 子帧局部 · w：P=1 / v=0 · 通行：位置✔ 向量✔' },
+    { name: '父空间',    op: '· ChildToParent', mat: 'c2p',
+      sem: '轴 = 父帧（RelativeLocation 的读数系）· 通行：位置✔ 向量✔' },
+    { name: '世界',      op: '· ParentToWorld', mat: 'p2w',
+      sem: 'X前 Y右 Z上 · cm · 绝对 · 通行：位置✔ 向量✔' },
+    { name: '视图',      op: '· ViewMatrix', mat: 'view',
+      sem: 'X右 Y上 Z前（Swap 后，D3D 风）· 通行：位置✔ 向量✔ · 下方并排：相机本体（未 Swap）' },
+    { name: '裁剪',      op: '· 透视矩阵', mat: 'proj',
+      sem: '齐次 = UE 官方"屏幕空间" · W = 前向距离 · 通行：位置✔ 向量⚠（除法无意义）' },
+    { name: 'NDC·像素',  op: '÷w → ×分辨率', mat: null,
+      sem: 'NDC：x,y∈[−1,1] z∈[0,1]｜像素：左上原点 Y 向下 · 通行：位置✔ 向量✘（用射线）' }
   ];
   function transforms() {
     var p2w = uFrame(S.pyaw, S.ppitch, 0, [S.ptx, S.pty, S.ptz], [S.psx, S.psy, S.psz]);
@@ -1306,10 +1357,37 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
     d.innerHTML = '<div class="sthead"><span class="stno">' + (i+1) + '</span>' +
       '<span class="stname">' + st.name + '</span><span class="stval" id="stv-' + i + '"></span></div>' +
       '<div class="stsub" style="font-size:11px;color:var(--text-tertiary)">' + st.op + '</div>' +
+      '<div class="stsem" id="stsem-' + i + '"></div>' +
+      '<div class="stcam" id="stcam-' + i + '" style="display:none"></div>' +
       '<details><summary>换乘矩阵</summary><div class="matgrid" id="stm-' + i + '"></div></details>';
     d.addEventListener('click', function(){ S.station = i; update(); });
     pipe.appendChild(d); cards.push(d);
   });
+  // ⑧ 空间全景表
+  var SPACES = [
+    { k:'local',   n:'子本地',      sem:'资产/逻辑原始读数' },
+    { k:'parent',  n:'父空间',      sem:'相对挂载点（轴=父帧）' },
+    { k:'world',   n:'世界',        sem:'X前Y右Z上 · cm · 绝对' },
+    { k:'cambody', n:'相机本体',    sem:'X前Y右Z上（原点=眼）' },
+    { k:'view',    n:'视图',        sem:'X右Y上Z前（Swap 后）' },
+    { k:'clip',    n:'裁剪/屏幕齐次', sem:'W=前向深度（UE"屏幕空间"）' },
+    { k:'ndc',     n:'NDC',        sem:'x,y∈[−1,1] · z∈[0,1]' },
+    { k:'uv',      n:'视口UV',      sem:'0~1 · Y 向下' },
+    { k:'px',      n:'像素',        sem:'左上原点 ×分辨率' }
+  ];
+  var spacet = document.getElementById('spacet');
+  var spRows = {};
+  SPACES.forEach(function(sp){
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td><b>' + sp.n + '</b></td><td class="sem">' + sp.sem + '</td>' +
+      '<td class="pv" id="spv-' + sp.k + '"></td><td class="pv" id="spw-' + sp.k + '"></td>';
+    spacet.appendChild(tr);
+    spRows[sp.k] = true;
+  });
+  // 上一帧快照（运动矢量）
+  var PREV = { px: null, world: null };
+  var LAST = { px: null, world: null, behind: true };
+  setInterval(function(){ PREV.px = LAST.px; PREV.world = LAST.world; }, 900);
   function fillMat(el, M, hlRow) {
     var html = '';
     var I = uI();
@@ -1382,6 +1460,37 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
       fillMat(document.getElementById('stm-' + i), mats[i], i >= 1 && i <= 3);
     }
     document.getElementById('st-note').textContent = '第 ' + (S.station+1) + '/6 站';
+    // ---- 空间档案 + 相机本体并排（视图站）----
+    for (i = 0; i < 6; i++) document.getElementById('stsem-' + i).textContent = STATIONS[i].sem;
+    var cbEl = document.getElementById('stcam-3');
+    cbEl.style.display = '';
+    cbEl.innerHTML = '相机本体（未 Swap，X前Y右Z上）：P (' + f2(pv[3][2]) + ', ' + f2(pv[3][0]) + ', ' + f2(pv[3][1]) + ') · v (' + f2(vv[3][2]) + ', ' + f2(vv[3][0]) + ', ' + f2(vv[3][1]) + ')';
+    // ---- ⑧ 空间全景表 ----
+    function spSet(k, p, w) {
+      document.getElementById('spv-' + k).textContent = p;
+      document.getElementById('spw-' + k).innerHTML = w;
+    }
+    function tv3(a) { return '(' + f2(a[0]) + ', ' + f2(a[1]) + ', ' + f2(a[2]) + ')'; }
+    var VSTOP = '<span class="warn">✘ 射线替代</span>';
+    spSet('local',  tv3(pv[0]), tv3(vv[0]));
+    spSet('parent', tv3(pv[1]), tv3(vv[1]));
+    spSet('world',  tv3(pv[2]), tv3(vv[2]));
+    spSet('cambody', tv3([pv[3][2], pv[3][0], pv[3][1]]), tv3([vv[3][2], vv[3][0], vv[3][1]]));
+    spSet('view',   tv3(pv[3]), tv3(vv[3]));
+    spSet('clip',   tv3(pv[4]) + ' w=' + f2(pv[4][3]), '<span class="warn">⚠ w=' + f2(vv[4][3]) + ' 垃圾</span>');
+    if (behind) {
+      spSet('ndc', '<span class="warn">W≤0 背后</span>', VSTOP);
+      spSet('uv',  '<span class="warn">—</span>', VSTOP);
+      spSet('px',  '<span class="warn">—</span>', VSTOP);
+    } else {
+      spSet('ndc', tv3(ndc), VSTOP);
+      spSet('uv',  '(' + f2(ndc[0]/2+0.5) + ', ' + f2(0.5-ndc[1]/2) + ')', VSTOP);
+      spSet('px',  '(' + Math.round(px2[0]) + ', ' + Math.round(px2[1]) + ')', VSTOP);
+    }
+    // 上一帧快照记录
+    LAST.px = behind ? null : [px2[0], px2[1]];
+    LAST.world = behind ? null : [pv[2][0], pv[2][1], pv[2][2]];
+    LAST.behind = behind;
     // 屏幕信息
     var skv = document.getElementById('screen-kv');
     if (behind) skv.innerHTML = '<span class="warn">W = ' + f2(Pc[3]) + ' ≤ 0：点在相机背后，ProjectWorldLocationToScreen 返回 false</span>';
@@ -1479,6 +1588,17 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
       label(c, 'P (' + Math.round(px2[0]) + ',' + Math.round(px2[1]) + ')', sx+10, sy-10, PAL.p, 'bold 12px Consolas,monospace');
       var inb = sx > 4 && sx < W-4 && sy > 4 && sy < H-4;
       if (!inb) label(c, '屏外（仍可投影，仅 W≤0 才失败）', W/2-88, H-14, 'var(--accent-orange)', '10.5px "Noto Sans SC",sans-serif');
+      // 上一帧对照：空心点 = 上帧落点，箭头 = 屏幕运动矢量
+      var chk = document.getElementById('chk-prev');
+      if (chk && chk.checked && PREV.px) {
+        var bx = PREV.px[0]/S.res[0]*W, by = PREV.px[1]/S.res[1]*H;
+        var dxp = px2[0]-PREV.px[0], dyp = px2[1]-PREV.px[1];
+        if (Math.hypot(dxp, dyp) > 3 && Math.abs(bx) < W*2 && Math.abs(by) < H*2) {
+          dot(c, bx, by, 5, PAL.t, true);
+          arrow(c, bx, by, sx, sy, 'rgba(122,162,247,0.85)', 2, [5,4]);
+          label(c, 'Δ(' + dxp.toFixed(0) + ',' + dyp.toFixed(0) + ')px', (bx+sx)/2+8, (by+sy)/2, 'var(--accent-purple)', 'bold 11px Consolas,monospace');
+        }
+      }
     } else {
       label(c, 'W ≤ 0：相机背后，投影失败', W/2-78, H/2, PAL.p, '12px "Noto Sans SC",sans-serif');
     }
