@@ -751,8 +751,10 @@ input[type="range"] { accent-color: var(--accent-blue); }
         <button class="btn" id="b-prev">◀ 上一站</button>
         <button class="btn" id="b-next">下一站 ▶</button>
         <button class="btn" id="b-play">自动播放</button>
-        <span class="hint" id="st-note" style="margin-left:auto"></span>
+        <label class="inline-cb" style="margin-left:auto;font-size:11.5px;color:var(--text-secondary)"><input type="checkbox" id="chk-follow" checked> 跟站视角</label>
+        <span class="hint" id="st-note"></span>
       </div>
+      <div class="kv dim" style="margin-bottom:8px">跟站：①本地贴子帧+<b class="pos">坐标阶梯</b>（沿子帧斜轴走 x/y/z）· ②父站沿父帧 · ③世界沿正交轴——同一 P 三套走法 · <b>④=相机所见</b>（拖动=转相机）· ⑤绕相机看视锥 · ⑥整幅变屏幕</div>
       <div class="pipe" id="pipe"></div>
     </div>
 
@@ -1166,7 +1168,12 @@ function ue3d(canvas, hFov) {
     yaw: -62, pitch: 30, dist: 13.5, target: [2.4, 0.9, 1.2],
     _VP: null, _VPinv: null, items: []
   };
-  sc.begin = function() {
+  sc.begin = function(ov) { // ov = {V, P}：直接采用外部 VP（跟站视角的"相机所见"模式）
+    if (ov) {
+      sc._VP = uMul(ov.V, ov.P);
+      sc._VPinv = m4inv(sc._VP);
+      return;
+    }
     var cy = Math.cos(sc.yaw*D2R), sy = Math.sin(sc.yaw*D2R);
     var cp = Math.cos(sc.pitch*D2R), sp = Math.sin(sc.pitch*D2R);
     var eye = [sc.target[0]+cp*cy*sc.dist, sc.target[1]+cp*sy*sc.dist, sc.target[2]+sp*sc.dist];
@@ -1181,8 +1188,9 @@ function ue3d(canvas, hFov) {
   sc.proj = function(p) {
     var c = uAp(sc._VP, [p[0],p[1],p[2],1]);
     if (c[3] <= 0.05) return null;
-    var q = uNdcToPx([c[0]/c[3], c[1]/c[3]], sc.W, sc.H);
-    return { px: q[0], py: q[1], z: c[3] };
+    var R = sc.rect || [0, 0, sc.W, sc.H];
+    var q = uNdcToPx([c[0]/c[3], c[1]/c[3]], R[2], R[3]);
+    return { px: R[0] + q[0], py: R[1] + q[1], z: c[3] };
   };
   sc.item = function(z, fn) { sc.items.push({ z: z, fn: fn }); };
   sc.flush = function() {
@@ -1191,8 +1199,9 @@ function ue3d(canvas, hFov) {
     sc.items = [];
   };
   sc.ray = function(px, py) {
+    var R = sc.rect || [0, 0, sc.W, sc.H];
     function unproj(nz) {
-      var nx = px/sc.W*2 - 1, ny = 1 - 2*py/sc.H;
+      var nx = (px-R[0])/R[2]*2 - 1, ny = 1 - 2*(py-R[1])/R[3];
       var v = uAp(sc._VPinv, [nx, ny, nz, 1]);
       return [v[0]/v[3], v[1]/v[3], v[2]/v[3]];
     }
@@ -1223,8 +1232,11 @@ function ue3d(canvas, hFov) {
       var dx = pos[0]-last[0], dy = pos[1]-last[1];
       last = pos;
       if (dragging === 'orbit') {
-        sc.yaw -= dx * 0.4; sc.pitch = Math.max(-80, Math.min(80, sc.pitch + dy * 0.4));
-        if (sc.onorbit) sc.onorbit();
+        if (sc.ondrag) sc.ondrag(dx, dy);
+        else {
+          sc.yaw -= dx * 0.4; sc.pitch = Math.max(-80, Math.min(80, sc.pitch + dy * 0.4));
+          if (sc.onorbit) sc.onorbit();
+        }
       } else dragging(dx, dy, pos);
     });
     canvas.addEventListener('pointerup', function(){ dragging = null; });
@@ -1305,6 +1317,23 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
     addLineW(sc, pts[i].f, pts[j].f, color, 1);
   }
 }
+function drawLadder(sc, origin, M, coords) {
+  // 坐标阶梯（配方路径）：从 origin 沿 M 的三支轴（行，含缩放）依次走 x/y/z 步 → 端点=P
+  // 段颜色 = 对应轴色（X橙/Y绿/Z青），段长标签 = 该空间的坐标读数
+  var ax = [[M[0],M[4],M[8]], [M[1],M[5],M[9]], [M[2],M[6],M[10]]];
+  var cols = [PAL.x, PAL.y, PAL.z];
+  var p = origin.slice(), pts = [p.slice()], i;
+  for (i = 0; i < 3; i++) {
+    p = [p[0]+coords[i]*ax[i][0], p[1]+coords[i]*ax[i][1], p[2]+coords[i]*ax[i][2]];
+    pts.push(p.slice());
+  }
+  for (i = 0; i < 3; i++) {
+    addLineW(sc, pts[i], pts[i+1], cols[i], 3.4, coords[i] < 0 ? [6,4] : null);
+    var mid = [(pts[i][0]+pts[i+1][0])/2, (pts[i][1]+pts[i+1][1])/2, (pts[i][2]+pts[i+1][2])/2];
+    addLabelW(sc, mid, 'xyz'[i] + '=' + coords[i].toFixed(2), cols[i], 5, -9, 'bold 11px Consolas,monospace');
+  }
+  return pts[3];
+}
 
 // ============================================================
 // 实验室主控
@@ -1320,7 +1349,7 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
     px: 0.9, py: 0.4, pz: 1.1, vx: 1, vy: 0.55, vz: 0.25
   };
   var S = JSON.parse(JSON.stringify(DEFAULTS));
-  S.mode = 'pos'; S.station = 0; S.res = [1280, 720];
+  S.mode = 'pos'; S.station = 0; S.res = [1280, 720]; S.follow = true;
   var STATIONS = [
     { name: '本地（子）', op: 'P 输入', mat: null,
       sem: '轴 = 子帧局部 · w：P=1 / v=0 · 通行：位置✔ 向量✔' },
@@ -1360,7 +1389,7 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
       '<div class="stsem" id="stsem-' + i + '"></div>' +
       '<div class="stcam" id="stcam-' + i + '" style="display:none"></div>' +
       '<details><summary>换乘矩阵</summary><div class="matgrid" id="stm-' + i + '"></div></details>';
-    d.addEventListener('click', function(){ S.station = i; update(); });
+    d.addEventListener('click', function(){ setStation(i); });
     pipe.appendChild(d); cards.push(d);
   });
   // ⑧ 空间全景表
@@ -1531,17 +1560,38 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
   }
   function draw(T, pv, vv, behind, ndc, px2, nrm) {
     var ctx = sc.ctx;
-    sc.begin();
+    if (S.station === 5 && S.follow) { drawScreenBig(behind, ndc, px2, pv[4]); return; }
+    var gameView = (S.station === 3 && S.follow);
+    sc.rect = null;
     ctx.fillStyle = PAL.bg;
     ctx.fillRect(0, 0, sc.W, sc.H);
-    addUEGrid(sc, 8);
-    addFrameW(sc, T.p2w, 1.9, [PAL.t, PAL.p, PAL.dim], S.station === 1);
-    addLabelW(sc, [T.p2w[12], T.p2w[13], T.p2w[14]+0.25], '父', PAL.t, 0, -12, 'bold 12px "Noto Sans SC",sans-serif');
+    var oy = 0, rh = sc.H;
+    if (gameView) {
+      rh = Math.round(sc.W * 9/16); oy = Math.round((sc.H - rh)/2);
+      sc.rect = [0, oy, sc.W, rh];
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, oy, sc.W, rh); ctx.clip();
+      ctx.fillStyle = PAL.bg; ctx.fillRect(0, oy, sc.W, rh);
+    }
+    sc.begin(gameView ? { V: T.view, P: T.proj } : null);
+    addUEGrid(sc, gameView ? 7 : 8);
+    if (!gameView) {
+      addFrameW(sc, T.p2w, 1.9, [PAL.t, PAL.p, PAL.dim], S.station === 1);
+      addLabelW(sc, [T.p2w[12], T.p2w[13], T.p2w[14]+0.25], '父', PAL.t, 0, -12, 'bold 12px "Noto Sans SC",sans-serif');
+    }
     addFrameW(sc, T.c2w, 1.4, [PAL.y, PAL.t, PAL.p], S.station === 0);
-    addLabelW(sc, [T.c2w[12], T.c2w[13], T.c2w[14]+0.25], '子', PAL.y, 2, -14, 'bold 12px "Noto Sans SC",sans-serif');
+    if (!gameView) addLabelW(sc, [T.c2w[12], T.c2w[13], T.c2w[14]+0.25], '子', PAL.y, 2, -14, 'bold 12px "Noto Sans SC",sans-serif');
     var Pw = [pv[2][0], pv[2][1], pv[2][2]];
     var Vw = [vv[2][0], vv[2][1], vv[2][2]];
     addLineW(sc, Pw, [Pw[0], Pw[1], 0], PAL.grid, 1, [4,4]);
+    // 坐标阶梯：本地/父/世界三站各自的原点与轴 → 同一 P，三套走法
+    var WM = uI();
+    var VM = uMul(uTrans(T.eye[0], T.eye[1], T.eye[2]), uRot(S.campitch, S.camyaw, 0));
+    var VMp = [VM[4],VM[5],VM[6],0, VM[8],VM[9],VM[10],0, VM[0],VM[1],VM[2],0, VM[12],VM[13],VM[14],1]; // 行序 [右,上,前]
+    if (S.station === 0) drawLadder(sc, [T.c2w[12], T.c2w[13], T.c2w[14]], T.c2w, [pv[0][0], pv[0][1], pv[0][2]]);
+    if (S.station === 1) drawLadder(sc, [T.p2w[12], T.p2w[13], T.p2w[14]], T.p2w, [pv[1][0], pv[1][1], pv[1][2]]);
+    if (S.station === 2) drawLadder(sc, [0,0,0], WM, [pv[2][0], pv[2][1], pv[2][2]]);
+    if (S.station === 3) drawLadder(sc, T.eye, VMp, [pv[3][0], pv[3][1], pv[3][2]]);
     addDotW(sc, Pw, 6, PAL.p);
     addLabelW(sc, Pw, 'P', PAL.p, -14, -10, 'bold 13px Consolas,monospace');
     var vl = Math.hypot(Vw[0],Vw[1],Vw[2]) || 1, vlen = 1.4;
@@ -1557,15 +1607,73 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
       addArrowW(sc, Pw, [Pw[0]+nrm.right[0]/rl*L2, Pw[1]+nrm.right[1]/rl*L2, Pw[2]+nrm.right[2]/rl*L2], PAL.z, 3);
       addLabelW(sc, [Pw[0]+nrm.right[0]/rl*L2, Pw[1]+nrm.right[1]/rl*L2, Pw[2]+nrm.right[2]/rl*L2], 'n·(M⁻¹)ᵀ', PAL.z, 4, 14, '11px Consolas,monospace');
     }
-    var camCol = S.station >= 4 ? 'rgba(255,107,107,0.85)' : 'rgba(122,162,247,0.75)';
-    addFrustum(sc, T.eye, S.camyaw, S.campitch, S.fov, S.res[0]/S.res[1], Math.min(S.near, S.camdist*0.6), S.far, camCol);
-    var camFrame = uMul(uTrans(T.eye[0], T.eye[1], T.eye[2]), uRot(S.campitch, S.camyaw, 0));
-    addFrameW(sc, camFrame, 1.1, ['rgba(122,162,247,0.9)', 'rgba(122,162,247,0.7)', 'rgba(122,162,247,0.5)'], S.station === 3);
-    addLabelW(sc, T.eye, '相机', 'var(--accent-purple)', 4, -16, '11px "Noto Sans SC",sans-serif');
-    if (S.station === 5 && !behind) addLineW(sc, T.eye, Pw, PAL.p, 2, [7,5]);
+    if (!gameView) {
+      var camCol = S.station >= 4 ? 'rgba(255,107,107,0.85)' : 'rgba(122,162,247,0.75)';
+      addFrustum(sc, T.eye, S.camyaw, S.campitch, S.fov, S.res[0]/S.res[1], Math.min(S.near, S.camdist*0.6), S.far, camCol);
+      var camFrame = uMul(uTrans(T.eye[0], T.eye[1], T.eye[2]), uRot(S.campitch, S.camyaw, 0));
+      addFrameW(sc, camFrame, 1.1, ['rgba(122,162,247,0.9)', 'rgba(122,162,247,0.7)', 'rgba(122,162,247,0.5)'], S.station === 3);
+      addLabelW(sc, T.eye, '相机', 'var(--accent-purple)', 4, -16, '11px "Noto Sans SC",sans-serif');
+      if (S.station === 4 && !behind) {
+        addLineW(sc, T.eye, Pw, PAL.p, 2.4, [7,5]);
+        addLabelW(sc, Pw, 'w=' + f2(pv[4][3]) + 'cm', PAL.p, 10, 16, '11px Consolas,monospace');
+      }
+      if (S.station === 5 && !behind && !S.follow) addLineW(sc, T.eye, Pw, PAL.p, 2, [7,5]);
+    } else {
+      label(ctx, '黑边内 = 相机所见（X右 Y上 Z前）· 拖动 = 转相机', 12, oy + 18, PAL.dim, '11px "Noto Sans SC",sans-serif');
+    }
     sc.flush();
-    sc._hitP = sc.proj(Pw);
+    if (gameView) {
+      ctx.restore();
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.fillRect(0, 0, sc.W, oy); ctx.fillRect(0, oy+rh, sc.W, sc.H-rh-oy);
+      ctx.strokeStyle = PAL.ghost; ctx.lineWidth = 1;
+      ctx.strokeRect(.5, oy+.5, sc.W-1, rh-1);
+    }
+    sc._hitP = (gameView) ? null : sc.proj(Pw);
     drawScreen(behind, ndc, px2);
+  }
+  function drawScreenBig(behind, ndc, px2, Pc) {
+    var c = sc.ctx, W = sc.W, H = sc.H;
+    c.fillStyle = PAL.bg; c.fillRect(0, 0, W, H);
+    var sw = W - 190, sh = sw*9/16;
+    if (sh > H - 36) { sh = H - 36; sw = sh*16/9; }
+    var sx0 = 18, sy0 = (H-sh)/2, i;
+    c.fillStyle = PAL.bg; c.strokeStyle = PAL.axis; c.lineWidth = 2;
+    c.fillRect(sx0, sy0, sw, sh); c.strokeRect(sx0+.5, sy0+.5, sw, sh);
+    c.strokeStyle = PAL.grid; c.lineWidth = 1;
+    for (i = 1; i < 8; i++) { var gx = sx0 + sw*i/8; c.beginPath(); c.moveTo(gx, sy0); c.lineTo(gx, sy0+sh); c.stroke(); }
+    for (i = 1; i < 4; i++) { var gy = sy0 + sh*i/4.5; c.beginPath(); c.moveTo(sx0, gy); c.lineTo(sx0+sw, gy); c.stroke(); }
+    c.strokeStyle = PAL.t; c.setLineDash([6,4]);
+    c.strokeRect(sx0+sw/8*2+.5, sy0+sh/9*2.5+.5, sw/8*4, sh/9*4);
+    c.setLineDash([]);
+    label(c, '像素网格 160px/格 · 紫虚框 = NDC[−1,1]', sx0+4, sy0+sh+16, PAL.dim, '11px "Noto Sans SC",sans-serif');
+    label(c, S.res[0] + '×' + S.res[1], sx0+sw-60, sy0+14, PAL.dim, '10.5px Consolas,monospace');
+    if (!behind && ndc) {
+      var sx = sx0 + (ndc[0]/2+0.5)*sw, sy = sy0 + (0.5-ndc[1]/2)*sh;
+      c.strokeStyle = PAL.p; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(sx-14, sy); c.lineTo(sx+14, sy); c.moveTo(sx, sy-14); c.lineTo(sx, sy+14); c.stroke();
+      dot(c, sx, sy, 6, PAL.p);
+      label(c, 'P (' + Math.round(px2[0]) + ', ' + Math.round(px2[1]) + ')', sx+12, sy-12, PAL.p, 'bold 13px Consolas,monospace');
+      var chk = document.getElementById('chk-prev');
+      if (chk && chk.checked && PREV.px) {
+        var bx = sx0 + PREV.px[0]/S.res[0]*sw, by = sy0 + PREV.px[1]/S.res[1]*sh;
+        var dxp = px2[0]-PREV.px[0], dyp = px2[1]-PREV.px[1];
+        if (Math.hypot(dxp, dyp) > 3) {
+          dot(c, bx, by, 5, PAL.t, true);
+          arrow(c, bx, by, sx, sy, 'rgba(122,162,247,0.85)', 2, [5,4]);
+          label(c, '运动矢量 Δ(' + dxp.toFixed(0) + ',' + dyp.toFixed(0) + ')px', (bx+sx)/2, (by+sy)/2-12, 'var(--accent-purple)', 'bold 11px Consolas,monospace');
+        }
+      }
+    } else {
+      label(c, 'W = ' + f2(Pc[3]) + ' ≤ 0：相机背后', sx0+sw/2-70, sy0+sh/2, PAL.p, '13px "Noto Sans SC",sans-serif');
+    }
+    var bx2 = sx0 + sw + 14;
+    ['裁剪 ' + (behind ? '—' : f2(Pc[0]) + ', ' + f2(Pc[1])), 'w = ' + (behind ? '⚠≤0' : f2(Pc[3])),
+     'NDC ' + (behind ? '—' : f2(ndc[0]) + ', ' + f2(ndc[1])),
+     'px  ' + (behind ? '—' : Math.round(px2[0]) + ', ' + Math.round(px2[1])),
+     '', 'FOV ' + S.fov + '°(水平)', '视口 ' + S.res[0] + '×' + S.res[1]].forEach(function(t, k){
+      label(c, t, bx2, sy0 + 16 + k*22, k >= 4 ? PAL.dim : PAL.text, (k===3?'bold ':'') + '12px Consolas,monospace');
+    });
   }
   function drawScreen(behind, ndc, px2) {
     var c = screenCv, W = 384, H = 216;
@@ -1626,6 +1734,53 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
     return null;
   });
   sc.onorbit = function(){ update(); };
+  sc.ondrag = function(dx, dy) {
+    if (S.station === 3 && S.follow) {
+      S.camyaw = ((S.camyaw + dx*0.35 + 180) % 360 + 360) % 360 - 180;
+      S.campitch = Math.max(-60, Math.min(60, S.campitch + dy*0.35));
+      syncSlider('s-camyaw','v-camyaw',Math.round(S.camyaw),function(v){ return v+'°'; });
+      syncSlider('s-campitch','v-campitch',Math.round(S.campitch),function(v){ return v+'°'; });
+      update();
+    } else {
+      sc.yaw -= dx*0.4; sc.pitch = Math.max(-80, Math.min(80, sc.pitch + dy*0.4));
+      update();
+    }
+  };
+  // 跟站视角：预设机位 + 平滑飞行
+  var tw = null;
+  function stationView(i) {
+    var T = transforms();
+    if (i === 0) return { yaw: -55, pitch: 26, dist: 5.4, target: [T.c2w[12], T.c2w[13], T.c2w[14]+0.5] };
+    if (i === 1) return { yaw: -55, pitch: 24, dist: 8.8, target: [T.p2w[12], T.p2w[13], T.p2w[14]+0.4] };
+    if (i === 2) return { yaw: -62, pitch: 30, dist: 14, target: T.tgt };
+    if (i === 4) return { yaw: -35, pitch: 18, dist: 11.5, target: [T.eye[0], T.eye[1], T.eye[2]] };
+    return null;
+  }
+  function tweenTo(pr) {
+    tw = { t0: performance.now(), dur: 540,
+      from: { yaw: sc.yaw, pitch: sc.pitch, dist: sc.dist, t: sc.target.slice() }, to: pr };
+    requestAnimationFrame(tick);
+  }
+  function tick() {
+    if (!tw) return;
+    var k = Math.min(1, (performance.now() - tw.t0) / tw.dur);
+    var e = k*k*(3-2*k);
+    sc.yaw   = tw.from.yaw   + (tw.to.yaw   - tw.from.yaw)  *e;
+    sc.pitch = tw.from.pitch + (tw.to.pitch - tw.from.pitch)*e;
+    sc.dist  = tw.from.dist  + (tw.to.dist  - tw.from.dist) *e;
+    sc.target = [0,1,2].map(function(i){ return tw.from.t[i] + (tw.to.target[i]-tw.from.t[i])*e; });
+    update();
+    if (k < 1) requestAnimationFrame(tick); else tw = null;
+  }
+  function setStation(i) {
+    S.station = Math.max(0, Math.min(5, i));
+    if (S.follow) { var pr = stationView(S.station); if (pr) tweenTo(pr); }
+    update();
+  }
+  document.getElementById('chk-follow').addEventListener('change', function(){
+    S.follow = this.checked;
+    if (S.follow) setStation(S.station); else update();
+  });
   // 模式切换
   document.querySelectorAll('.mode-btn').forEach(function(b){
     b.addEventListener('click', function(){
@@ -1636,14 +1791,14 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
     });
   });
   // 步进
-  document.getElementById('b-prev').addEventListener('click', function(){ S.station = Math.max(0, S.station-1); update(); });
-  document.getElementById('b-next').addEventListener('click', function(){ S.station = Math.min(5, S.station+1); update(); });
+  document.getElementById('b-prev').addEventListener('click', function(){ setStation(S.station-1); });
+  document.getElementById('b-next').addEventListener('click', function(){ setStation(S.station+1); });
   var playT = null;
   document.getElementById('b-play').addEventListener('click', function(){
     var btn = this;
     if (playT) { clearInterval(playT); playT = null; btn.textContent = '自动播放'; return; }
     btn.textContent = '停止';
-    playT = setInterval(function(){ S.station = (S.station+1)%6; update(); }, 1300);
+    playT = setInterval(function(){ setStation((S.station+1)%6); }, 1600);
   });
   // 滑块/数字
   function bindRange(id, valId, key, fmt) {
@@ -1719,8 +1874,8 @@ function addFrustum(sc, camLoc, camYaw, camPitch, hFov, aspect, n, f, color) {
         x.classList.toggle('active', x.getAttribute('data-mode') === m);
       });
       S.mode = m; update();
-    } else if (e.key === 'ArrowRight') { S.station = Math.min(5, S.station+1); update(); }
-    else if (e.key === 'ArrowLeft') { S.station = Math.max(0, S.station-1); update(); }
+    } else if (e.key === 'ArrowRight') { setStation(S.station+1); }
+    else if (e.key === 'ArrowLeft') { setStation(S.station-1); }
     else if (e.key === 'r' || e.key === 'R') resetAll();
   });
   // 面板收展
